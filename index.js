@@ -2,7 +2,7 @@
  * @Author: mangwu                                                             *
  * @File: index.js                                                             *
  * @Date: 2023-04-02 03:03:47                                                  *
- * @LastModifiedDate: 2023-04-02 05:28:16                                      *
+ * @LastModifiedDate: 2023-04-02 18:08:08                                      *
  * @ModifiedBy: mangwu                                                         *
  * -----------------------                                                     *
  * Copyright (c) 2023 mangwu                                                   *
@@ -71,7 +71,6 @@ fs.writeFileSync(filename, "# 原神角色语音\n", "utf8", function (error) {
 c.queue([
   {
     uri: "https://wiki.biligame.com/ys/%E8%A7%92%E8%89%B2%E8%AF%AD%E9%9F%B3",
-    // jQuery: false,
     // The global callback won't be called
     callback: function (error, res, done) {
       if (error) {
@@ -79,86 +78,83 @@ c.queue([
       } else {
         var $ = res.$;
         const data = $(
-          ".bg-p .home-box-tag .iteminfo .home-box-tag-1 .floatnone a"
+          "#mw-content-text > div > div.main-line-wrap > div > div > div:nth-child(1) > div > div > div.iteminfo > div.home-box-tag-1 > div > div > a"
         );
+        const length = data.length;
+        const set = new Set(["白术语音", "卡维语音"]); // 未完善，不用爬取
         let flag = false;
-        Object.getOwnPropertyNames(data).map((i) => {
-          if (!data[i].attribs) return;
-          let isTravaler = data[i].attribs.title.indexOf("旅行者") !== -1;
-          if (isTravaler && flag) return;
-          if (isTravaler) flag = true;
-
-          const uri = isTravaler
-            ? `https://wiki.biligame.com/ys/%E6%97%85%E8%A1%8C%E8%80%85%E8%AF%AD%E9%9F%B3/%E8%8D%A7`
-            : `https://wiki.biligame.com${data[i].attribs.href}`;
-          const selector1 = isTravaler
-            ? ".visible-md:nth-of-type(n+4) > div > div:nth-child(1)"
-            : ".resp-tab-content .visible-md > div > div:nth-child(1)";
-          const selector2 = isTravaler
-            ? ".visible-md .voice_text_chs"
-            : ".resp-tab-content .visible-md .voice_text_chs";
-
-          c.queue([
-            {
-              uri: uri,
-              callback: function (error, res, done) {
-                if (error) {
-                  console.log(error);
-                } else {
-                  var $ = res.$;
-                  const data1 = $(selector1);
-                  const data2 = $(selector2);
-                  const cur = [];
-                  Object.getOwnPropertyNames(data1).map((i) => {
-                    if (data1[i].name === "div" && !isTravaler) {
-                      if (
-                        data1[i] &&
-                        data1[i].children &&
-                        data1[i].children[0] &&
-                        data1[i].children[0].data
-                      )
-                        cur.push(
-                          `+ ${data1[i].children[0].data} \n ${data2[i].children[0].data} \n`
-                        );
-                    } else if (data1[i].children) {
-                      // 是旅行者
-                      if (data2[i].children.length === 1) {
-                        if (
-                          data1[i] &&
-                          data1[i].children &&
-                          data1[i].children[0] &&
-                          data1[i].children[0].data
-                        )
-                          cur.push(
-                            `+ ${data1[i].children[0].data} \n ${data2[i].children[0].data} \n`
-                          );
-                      } else {
-                        const str = data2[i].children
-                          .map((v) => {
-                            if (v.name == "font") {
-                              return v?.children[0]?.data;
-                            } else if (v.type === "text") {
-                              return v?.data + "\n";
-                            }
-                          })
-                          .join("");
-                        cur.push(`+ ${data1[i]?.children[0]?.data} \n ${str}`);
-                      }
-                    }
-                  });
-                  fs.appendFileSync(
-                    filename,
-                    `## ${data[i].attribs.title}\n ${cur.join("")}`,
-                    "utf-8"
-                  );
-                }
-                done();
-              },
-            },
-          ]);
-        });
+        for (let i = 0; i < length; i++) {
+          const title = data[i].attribs.title;
+          if (set.has(title)) continue; // 略过未完善资料
+          let uri = `https://wiki.biligame.com${data[i].attribs.href}`; // 爬取地址
+          let selector1 = `.resp-tab-content .visible-md > div > div:nth-child(1)`;
+          let selector2 = `.resp-tab-content .visible-md .voice_text_chs`;
+          // 判断是否是旅行者
+          const isTraveler = title.indexOf("旅行者") !== -1;
+          if (isTraveler) {
+            if (flag) {
+              continue;
+            } // 已经爬取不用爬取了
+            else {
+              flag = true; // 进行首次爬取
+              uri = `https://wiki.biligame.com/ys/%E6%97%85%E8%A1%8C%E8%80%85%E8%AF%AD%E9%9F%B3/%E8%8D%A7`;
+              selector1 = `.visible-md:nth-of-type(n+4) > div > div:nth-child(1)`;
+              selector2 = `.visible-md .voice_text_chs`;
+            }
+          }
+          startAcquire(uri, selector1, selector2, title);
+        }
       }
       done();
     },
   },
 ]);
+const startAcquire = (uri, selector1, selector2, title) => {
+  c.queue([
+    {
+      uri,
+      callback: function (error, res, done) {
+        if (error) {
+          console.log(error);
+        } else {
+          var $ = res.$;
+          const data1 = $(selector1);
+          const data2 = $(selector2);
+          const length = data1.length;
+          let finallyData = [];
+          for (let i = 0; i < length; i++) {
+            // 语音标题
+            let cur = `+ ${data1[i].children[0].data}\n`;
+            // 语音内容
+            if (data2[i].children.length > 1) {
+              const str = data2[i].children
+                .map((v) => {
+                  if (v.name == "font") {
+                    if (v.children[0].type === "text") {
+                      return v.children[0].data;
+                    } else if (v.children[0].children[0].type === "text") {
+                      return v.children[0].children[0].data; // 菲谢尔特殊情况
+                    }
+                  } else if (v.type === "text") {
+                    return v.data + "\n";
+                  }
+                })
+                .join("");
+              cur = cur + str;
+            } else {
+              cur = cur + data2[i].children[0].data + "\n";
+            }
+            finallyData.push(cur);
+          }
+          // 写入文件
+          fs.appendFileSync(
+            filename,
+            `## ${title}\n ${finallyData.join("")}\n`,
+            "utf-8"
+          );
+        }
+        done();
+      },
+    },
+  ]);
+};
